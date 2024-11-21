@@ -2,7 +2,8 @@ import os
 import asyncio
 import logging
 from telethon import TelegramClient, events
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update
 from flask import Flask, request
 
 # Настройки логирования
@@ -16,9 +17,12 @@ logger = logging.getLogger(__name__)
 API_ID = os.environ.get('TELEGRAM_API_ID')
 API_HASH = os.environ.get('TELEGRAM_API_HASH')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-MONITORED_CHANNELS = []  # Список каналов для мониторинга
+ADMIN_CHAT_ID = os.environ.get('ADMIN_CHAT_ID')  # ВАШ ЛИЧНЫЙ CHAT ID
 
-# Создаем Flask приложение для поддержания активности
+# Список для мониторинга каналов
+MONITORED_CHANNELS = []
+
+# Создаем Flask приложение
 app = Flask(__name__)
 
 @app.route('/')
@@ -28,44 +32,80 @@ def home():
 # Клиент для мониторинга стримов
 client = TelegramClient('session', API_ID, API_HASH)
 
-# Бот для отправки уведомлений
-async def start(update, context):
-    """Команда /start для взаимодействия с ботом"""
-    await update.message.reply_text('Привет! Я бот для оповещений о стримах.')
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /start"""
+    chat_id = update.effective_chat.id
+    chat_type = update.effective_chat.type
+    
+    # Логирование для диагностики
+    logger.info(f"Start command received. Chat ID: {chat_id}, Chat Type: {chat_type}")
+    
+    await update.message.reply_text(f'Привет! Твой Chat ID: {chat_id}, Тип чата: {chat_type}')
 
-async def add_channel(update, context):
+async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Добавление канала в список мониторинга"""
-    if context.args:
-        channel_username = context.args[0]
-        MONITORED_CHANNELS.append(channel_username)
-        await update.message.reply_text(f'Канал {channel_username} добавлен в список мониторинга')
-    else:
-        await update.message.reply_text('Пожалуйста, укажите username канала')
+    # Проверка прав администратора
+    if update.effective_user.id != int(ADMIN_CHAT_ID):
+        await update.message.reply_text('У вас нет прав для этой команды.')
+        return
 
-async def remove_channel(update, context):
-    """Удаление канала из списка мониторинга"""
-    if context.args:
-        channel_username = context.args[0]
-        if channel_username in MONITORED_CHANNELS:
-            MONITORED_CHANNELS.remove(channel_username)
-            await update.message.reply_text(f'Канал {channel_username} удален из списка мониторинга')
-        else:
-            await update.message.reply_text('Канал не найден в списке мониторинга')
-    else:
+    if not context.args:
         await update.message.reply_text('Пожалуйста, укажите username канала')
+        return
+
+    channel_username = context.args[0]
+    MONITORED_CHANNELS.append(channel_username)
+    
+    # Логирование для диагностики
+    logger.info(f"Канал {channel_username} добавлен в список мониторинга")
+    
+    await update.message.reply_text(f'Канал {channel_username} добавлен в список мониторинга')
+
+async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Список мониторируемых каналов"""
+    # Проверка прав администратора
+    if update.effective_user.id != int(ADMIN_CHAT_ID):
+        await update.message.reply_text('У вас нет прав для этой команды.')
+        return
+
+    if not MONITORED_CHANNELS:
+        await update.message.reply_text('Список мониторинга пуст.')
+    else:
+        channels_list = '\n'.join(MONITORED_CHANNELS)
+        await update.message.reply_text(f'Мониторируемые каналы:\n{channels_list}')
+
+async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Удаление канала из списка мониторинга"""
+    # Проверка прав администратора
+    if update.effective_user.id != int(ADMIN_CHAT_ID):
+        await update.message.reply_text('У вас нет прав для этой команды.')
+        return
+
+    if not context.args:
+        await update.message.reply_text('Пожалуйста, укажите username канала')
+        return
+
+    channel_username = context.args[0]
+    if channel_username in MONITORED_CHANNELS:
+        MONITORED_CHANNELS.remove(channel_username)
+        await update.message.reply_text(f'Канал {channel_username} удален из списка мониторинга')
+    else:
+        await update.message.reply_text('Канал не найден в списке мониторинга')
 
 async def monitor_streams(application):
     """Мониторинг стримов в указанных каналах"""
     async with client:
         @client.on(events.NewMessage(chats=MONITORED_CHANNELS))
         async def stream_handler(event):
-            # Здесь логика определения начала стрима
+            # Простая логика определения стрима
             if '#live' in event.message.text:
-                # Отправка уведомления в телеграм-бот
-                await application.bot.send_message(
-                    chat_id=-1001601477384, 
-                    text=f'Начался стрим в канале {event.chat.username}!'
-                )
+                try:
+                    await application.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID, 
+                        text=f'Начался стрим в канале {event.chat.username}!'
+                    )
+                except Exception as e:
+                    logger.error(f"Ошибка отправки сообщения: {e}")
 
 async def main():
     """Запуск бота"""
@@ -75,6 +115,7 @@ async def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("add_channel", add_channel))
     application.add_handler(CommandHandler("remove_channel", remove_channel))
+    application.add_handler(CommandHandler("list_channels", list_channels))
 
     # Запуск бота и клиента
     await application.initialize()
@@ -88,7 +129,6 @@ async def main():
 # Обновленный запуск для Render
 if __name__ == '__main__':
     import threading
-    import time
 
     def run_bot():
         asyncio.run(main())
