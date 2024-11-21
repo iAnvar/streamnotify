@@ -56,7 +56,7 @@ async def monitor_streams():
             if '#live' in event.message.text:
                 # Отправка уведомления в телеграм-бот
                 bot.send_message(
-                    chat_id=YOUR_CHAT_ID, 
+                    chat_id=-1001601477384, 
                     text=f'Начался стрим в канале {event.chat.username}!'
                 )
 
