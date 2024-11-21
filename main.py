@@ -130,20 +130,32 @@ async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def monitor_streams(application):
     """Мониторинг стримов в указанных каналах"""
     try:
-        async with client:
-            @client.on(events.NewMessage(chats=MONITORED_CHANNELS))
-            async def stream_handler(event):
+        # Параметры для создания сессии
+        client = TelegramClient('session', API_ID, API_HASH, system_version='4.16.30')
+        
+        await client.start(bot_token=BOT_TOKEN)
+        
+        @client.on(events.NewMessage(chats=MONITORED_CHANNELS))
+        async def stream_handler(event):
+            try:
+                # Проверка, что список каналов не пустой
+                if not MONITORED_CHANNELS:
+                    return
+                
                 # Простая логика определения стрима
-                if '#live' in event.message.text:
-                    try:
-                        await application.bot.send_message(
-                            chat_id=ADMIN_CHAT_ID, 
-                            text=f'Начался стрим в канале {event.chat.username}!'
-                        )
-                    except Exception as e:
-                        logger.error(f"Ошибка отправки сообщения о стриме: {e}")
+                if '#live' in str(event.message.text):
+                    await application.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID, 
+                        text=f'Начался стрим в канале {event.chat.username}!'
+                    )
+            except Exception as e:
+                logger.error(f"Ошибка обработки события стрима: {e}")
+        
+        # Запуск клиента
+        await client.run_until_disconnected()
+    
     except Exception as e:
-        logger.error(f"Ошибка в мониторинге стримов: {e}")
+        logger.error(f"Критическая ошибка в мониторинге стримов: {e}")
 
 async def main():
     """Запуск бота"""
