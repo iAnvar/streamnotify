@@ -1,7 +1,7 @@
 import os
 from telethon import TelegramClient, events
-from telethon.tl.types import InputPeerUser, InputPeerChannel
-from telegram.ext import Updater, CommandHandler
+from telegram.ext import Application, CommandHandler
+import asyncio
 import logging
 
 # Настройки логирования
@@ -21,32 +21,32 @@ MONITORED_CHANNELS = []  # Список каналов для мониторин
 client = TelegramClient('session', API_ID, API_HASH)
 
 # Бот для отправки уведомлений
-def start(update, context):
+async def start(update, context):
     """Команда /start для взаимодействия с ботом"""
-    update.message.reply_text('Привет! Я бот для оповещений о стримах.')
+    await update.message.reply_text('Привет! Я бот для оповещений о стримах.')
 
-def add_channel(update, context):
+async def add_channel(update, context):
     """Добавление канала в список мониторинга"""
-    if len(context.args) > 0:
+    if context.args:
         channel_username = context.args[0]
         MONITORED_CHANNELS.append(channel_username)
-        update.message.reply_text(f'Канал {channel_username} добавлен в список мониторинга')
+        await update.message.reply_text(f'Канал {channel_username} добавлен в список мониторинга')
     else:
-        update.message.reply_text('Пожалуйста, укажите username канала')
+        await update.message.reply_text('Пожалуйста, укажите username канала')
 
-def remove_channel(update, context):
+async def remove_channel(update, context):
     """Удаление канала из списка мониторинга"""
-    if len(context.args) > 0:
+    if context.args:
         channel_username = context.args[0]
         if channel_username in MONITORED_CHANNELS:
             MONITORED_CHANNELS.remove(channel_username)
-            update.message.reply_text(f'Канал {channel_username} удален из списка мониторинга')
+            await update.message.reply_text(f'Канал {channel_username} удален из списка мониторинга')
         else:
-            update.message.reply_text('Канал не найден в списке мониторинга')
+            await update.message.reply_text('Канал не найден в списке мониторинга')
     else:
-        update.message.reply_text('Пожалуйста, укажите username канала')
+        await update.message.reply_text('Пожалуйста, укажите username канала')
 
-async def monitor_streams():
+async def monitor_streams(application):
     """Мониторинг стримов в указанных каналах"""
     async with client:
         @client.on(events.NewMessage(chats=MONITORED_CHANNELS))
@@ -55,25 +55,29 @@ async def monitor_streams():
             # Например, по наличию тега #live или другим признакам
             if '#live' in event.message.text:
                 # Отправка уведомления в телеграм-бот
-                bot.send_message(
+                await application.bot.send_message(
                     chat_id=-1001601477384, 
                     text=f'Начался стрим в канале {event.chat.username}!'
                 )
 
-def main():
+async def main():
     """Запуск бота"""
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+    application = Application.builder().token(BOT_TOKEN).build()
 
     # Регистрация команд
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("add_channel", add_channel))
-    dp.add_handler(CommandHandler("remove_channel", remove_channel))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("add_channel", add_channel))
+    application.add_handler(CommandHandler("remove_channel", remove_channel))
 
     # Запуск бота и клиента
-    updater.start_polling()
-    client.start()
-    client.run_until_disconnected()
+    await application.initialize()
+    await application.start()
+    
+    # Запуск мониторинга стримов
+    await monitor_streams(application)
+    
+    await application.updater.start_polling()
+    await application.updater.idle()
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
