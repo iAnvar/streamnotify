@@ -1,8 +1,9 @@
 import os
-from telethon import TelegramClient, events
-from telegram.ext import Application, CommandHandler
 import asyncio
 import logging
+from telethon import TelegramClient, events
+from telegram.ext import Application, CommandHandler
+from flask import Flask, request
 
 # Настройки логирования
 logging.basicConfig(
@@ -16,6 +17,13 @@ API_ID = os.environ.get('TELEGRAM_API_ID')
 API_HASH = os.environ.get('TELEGRAM_API_HASH')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 MONITORED_CHANNELS = []  # Список каналов для мониторинга
+
+# Создаем Flask приложение для поддержания активности
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Бот работает", 200
 
 # Клиент для мониторинга стримов
 client = TelegramClient('session', API_ID, API_HASH)
@@ -52,7 +60,6 @@ async def monitor_streams(application):
         @client.on(events.NewMessage(chats=MONITORED_CHANNELS))
         async def stream_handler(event):
             # Здесь логика определения начала стрима
-            # Например, по наличию тега #live или другим признакам
             if '#live' in event.message.text:
                 # Отправка уведомления в телеграм-бот
                 await application.bot.send_message(
@@ -77,7 +84,25 @@ async def main():
     await monitor_streams(application)
     
     await application.updater.start_polling()
-    await application.updater.idle()
 
+# Обновленный запуск для Render
 if __name__ == '__main__':
-    asyncio.run(main())
+    import threading
+    import time
+
+    def run_bot():
+        asyncio.run(main())
+
+    def run_flask():
+        from waitress import serve
+        serve(app, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+
+    # Запускаем бота и Flask в разных потоках
+    bot_thread = threading.Thread(target=run_bot)
+    flask_thread = threading.Thread(target=run_flask)
+
+    bot_thread.start()
+    flask_thread.start()
+
+    bot_thread.join()
+    flask_thread.join()
